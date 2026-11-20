@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TEXT GAME // ONLINE MULTIPLAYER</title>
+<style>
+  :root { color-scheme: dark; --bg:#000; --fg:#e6e6e6; --green:#0f0; --blue:#4cf; --dim:#777; --line:#222;
+    box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: "Courier New", monospace; }
+  button { background:#111; color:var(--green); border:1px solid var(--green); padding:8px 14px; font-family:inherit; cursor:pointer; }
+  button:hover, button.sel { background:var(--green); color:#000; }
+  input { background:#000; color:#fff; border:1px solid #444; padding:10px; font-family:inherit; font-size:16px; }
+  input:focus { outline:1px solid var(--green); }
+  .hidden { display:none !important; }
+
+  #login { max-width:420px; margin:0 auto; padding:8vh 20px; }
+  #login h1 { color:var(--green); margin-bottom:24px; }
+  #login input { width:100%; margin-bottom:16px; }
+  .server { display:flex; justify-content:space-between; width:100%; margin-bottom:8px; text-align:left; }
+  #newrow { display:flex; gap:8px; margin:12px 0; }
+  #newrow input { margin:0; flex:1; }
+  #err { color:#f55; min-height:20px; margin:10px 0; }
+  #status { color:var(--dim); font-size:12px; margin-top:14px; }
+
+  #chat { display:flex; height:100%; }
+  #side { width:170px; border-right:1px solid var(--line); padding:12px; overflow-y:auto; }
+  #side h3 { color:var(--green); margin:0 0 8px; font-size:14px; }
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #top { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  #log { flex:1; overflow-y:auto; padding:14px; }
+  .msg { margin-bottom:10px; word-wrap:break-word; }
+  .who { color:var(--green); } .me .who { color:var(--blue); }
+  .sys { color:var(--dim); font-style:italic; margin-bottom:10px; }
+  .anim { display:inline-block; font-size:56px; margin-top:6px; }
+  .chatgif { display:block; max-width:min(320px,80vw); max-height:240px; margin-top:8px; border:1px solid #333; }
+  #modPanel { position:fixed; z-index:5; right:12px; top:58px; width:min(300px,90vw); max-height:65vh; overflow:auto; background:#080808; border:1px solid var(--green); padding:12px; box-shadow:0 0 20px #0f04; }
+  #modPanel h3 { color:var(--green); margin:0 0 10px; }
+  .moduser { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:8px 0; }
+  .moduser button { padding:5px 8px; }
+
+  #tray { border-top:1px solid var(--line); padding:10px; background:#080808; }
+  #gifs { display:flex; gap:10px; overflow-x:auto; }
+  #gifs button { font-size:32px; padding:6px 12px; }
+  #bar { display:flex; gap:8px; padding:10px; border-top:1px solid var(--line); }
+  #bar input { flex:1; min-width:0; }
+
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.3)} }
+  .bounce{animation:bounce .6s infinite} .spin{animation:spin 1.2s linear infinite}
+  .shake{animation:shake .3s infinite} .pulse{animation:pulse .8s infinite}
+  @media (max-width:600px){ #side{display:none} #top{flex-wrap:wrap} #bar{gap:6px} #bar button{padding:8px} #log{padding:10px} }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h1>&gt; TEXT GAME_</h1>
+  <input id="username" placeholder="username" maxlength="20" autocomplete="off">
+  <div id="servers"></div>
+  <div id="newrow"><input id="newname" placeholder="or create a new server" maxlength="30" autocomplete="off"><button id="newBtn">CREATE</button></div>
+  <div id="err"></div>
+  <button id="joinBtn">JOIN</button>
+  <div id="status"></div>
+</div>
+
+<div id="chat" class="hidden">
+  <div id="side"><h3>ONLINE</h3><div id="users"></div></div>
+  <div id="main">
+    <div id="top"><span id="title"></span><span><button id="inviteBtn">INVITE</button> <button id="modBtn" class="hidden">MOD</button> <button id="muteBtn">SOUND ON</button> <button id="leaveBtn">LEAVE</button></span></div>
+    <div id="log"></div>
+    <div id="tray" class="hidden">
+      <div id="gifs"></div>
+      <div style="display:flex;gap:8px;margin-top:8px"><input id="gifUrl" placeholder="paste a direct animated .gif URL..." style="flex:1;min-width:0"><button id="sendGifUrl">SEND GIF</button></div>
+    </div>
+    <div id="bar">
+      <button id="gifBtn">GIF</button>
+      <input id="text" placeholder="type a message..." maxlength="500" autocomplete="off">
+      <button id="send">SEND</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const $ = id => document.getElementById(id);
+const ANIMS = [["🎉","bounce"],["😂","shake"],["❤️","pulse"],["🌀","spin"],["🔥","pulse"],["👋","shake"],["😎","bounce"],["💀","shake"]];
+const ANIM_OK = new Set(["bounce","spin","shake","pulse"]);
+const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
+const known = { general:"General", gaming:"Gaming", music:"Music", "late-night":"Late Night" };
+let room = null, nr = null, me = "", srv = null, label = "", selected = null, counts = {}, unsubs = [], settled = false;
+let ownerPeerId = null, iAmOwner = false, roomPeers = [];
+
+try { $("username").value = localStorage.getItem("tg_user") || ""; } catch (e) {}
+
+// ---- server list (defaults + any server someone created) ----
+function renderServers() {
+  const keys = Object.keys(known);
+  Object.keys(counts).forEach(k => { if (!keys.includes(k)) keys.push(k); });
+  $("servers").innerHTML = "";
+  keys.forEach(k => {
+    const b = document.createElement("button");
+    b.className = "server" + (k === selected ? " sel" : "");
+    b.innerHTML = "<span></span><span></span>";
+    b.children[0].textContent = known[k] || k;
+    b.children[1].textContent = (counts[k] || 0) + " online";
+    b.onclick = () => { selected = k; renderServers(); };
+    $("servers").appendChild(b);
+  });
+}
+renderServers();
+
+$("newBtn").onclick = () => {
+  const n = $("newname").value.trim(), k = slug(n);
+  if (!k) return;
+  known[k] = n.slice(0, 30); selected = k; $("newname").value = ""; renderServers();
+};
+
+// ---- REAL ONLINE MULTIPLAYER (Supabase Realtime) ----
+// Use a Supabase Project URL and a browser-safe Publishable key.
+const SUPABASE_URL = "https://wohektztnowdhcjqiztf.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_jlG9K3HW9aWCRk8Aa4Re4w_1EUeHkzP";
+
+let lobbyChannel = null;
+let onlineReady = false;
+let onlineClient = null;
+const peerId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+const lobbyListeners = [];
+
+function peersFromState(state) {
+  const result = [];
+  Object.entries(state || {}).forEach(([key, entries]) => {
+    (entries || []).forEach(p => result.push({
+      id: key,
+      isMe: key === peerId || p.peerId === peerId,
+      presence: p || {}
+    }));
+  });
+  return result;
+}
+
+function waitForSubscribe(channel, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => finish(new Error("Connection timed out")), timeoutMs);
+    function finish(err) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      err ? reject(err) : resolve();
+    }
+    channel.subscribe(status => {
+      if (status === "SUBSCRIBED") finish();
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        finish(new Error("Supabase Realtime status: " + status));
+      }
+    });
+  });
+}
+
+async function connectOnline() {
+  const status = $("status");
+  const joinButton = $("joinBtn");
+  joinButton.disabled = true;
+  joinButton.textContent = "CONNECTING...";
+  status.textContent = "Connecting to multiplayer...";
+
+  if (!SUPABASE_URL.startsWith("https://") || !SUPABASE_ANON_KEY.startsWith("sb_publishable_") || !window.supabase?.createClient) {
+    status.textContent = "Multiplayer setup problem: check the Supabase URL, publishable key, and internet connection.";
+    joinButton.disabled = false;
+    joinButton.textContent = "JOIN";
+    return;
+  }
+
+  try {
+    onlineClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      realtime: { params: { eventsPerSecond: 10 } }
+    });
+
+    lobbyChannel = onlineClient.channel("text-game-public-lobby", {
+      config: { presence: { key: peerId } }
+    });
+
+    lobbyChannel.on("presence", { event: "sync" }, () => {
+      const peers = peersFromState(lobbyChannel.presenceState());
+      counts = {};
+      peers.forEach(p => {
+        const serverId = p.presence?.srv;
+        if (typeof serverId === "string" && /^[a-z0-9-]{1,30}$/.test(serverId)) {
+          counts[serverId] = (counts[serverId] || 0) + 1;
+          if (!known[serverId] && typeof p.presence.label === "string") {
+            known[serverId] = p.presence.label.slice(0, 30);
+          }
+        }
+      });
+      renderServers();
+      lobbyListeners.forEach(fn => fn({ peers }));
+    });
+
+    await waitForSubscribe(lobbyChannel);
+
+    // The multiplayer adapter is only exposed after the lobby connection is live.
+    room = {
+      onPeers(fn) {
+        lobbyListeners.push(fn);
+        fn({ peers: peersFromState(lobbyChannel.presenceState()) });
+      },
+      async presence(data) {
+        if (data?.srv) await lobbyChannel.track({ ...data, peerId });
+        else await lobbyChannel.untrack();
+      },
+      async join(channelName) {
+        const channel = onlineClient.channel("text-game-" + channelName, {
+          config: {
+            presence: { key: peerId },
+            broadcast: { self: false, ack: true }
+          }
+        });
+        const handlers = { chat: [], gif: [], kick: [], peers: [] };
+        let currentPeers = [];
+        let presenceSynced = false;
+        let resolveSync;
+        const syncReady = new Promise(resolve => { resolveSync = resolve; });
+
+        const refreshPeers = () => {
+          currentPeers = peersFromState(channel.presenceState());
+          handlers.peers.forEach(fn => fn({ peers: currentPeers, joined: [], left: [] }));
+        };
+
+        channel.on("broadcast", { event: "chat" }, ({ payload }) => {
+          handlers.chat.forEach(fn => fn({ data: payload, isMe: payload?.peerId === peerId }));
+        });
+        channel.on("broadcast", { event: "gif" }, ({ payload }) => {
+          handlers.gif.forEach(fn => fn({ data: payload, isMe: payload?.peerId === peerId }));
+        });
+        channel.on("presence", { event: "sync" }, () => {
+          presenceSynced = true;
+          refreshPeers();
+          resolveSync();
+        });
+        channel.on("presence", { event: "join" }, ({ newPresences }) => {
+          currentPeers = peersFromState(channel.presenceState());
+          const joined = (newPresences || []).map(p => ({
+            presence: p,
+            isMe: p.peerId === peerId
+          }));
+          handlers.peers.forEach(fn => fn({ peers: currentPeers, joined, left: [] }));
+        });
+        channel.on("presence", { event: "leave" }, ({ leftPresences }) => {
+          currentPeers = peersFromState(channel.presenceState());
+          const left = (leftPresences || []).map(p => ({
+            presence: p,
+            isMe: p.peerId === peerId
+          }));
+          handlers.peers.forEach(fn => fn({ peers: currentPeers, joined: [], left }));
+        });
+
+        try {
+          await waitForSubscribe(channel);
+          // Initial presence sync normally arrives with SUBSCRIBED. Don't fail a
+          // valid room if the sync callback is a little slower; peers() reads fresh state.
+          if (!presenceSynced) await Promise.race([syncReady, new Promise(resolve => setTimeout(resolve, 1800))]);
+          currentPeers = peersFromState(channel.presenceState());
+        } catch (err) {
+          await onlineClient.removeChannel(channel);
+          throw err;
+        }
+
+        return {
+          peers: () => peersFromState(channel.presenceState()),
+          async presence(data) {
+            await channel.track({ ...data, peerId });
+            currentPeers = peersFromState(channel.presenceState());
+            handlers.peers.forEach(fn => fn({ peers: currentPeers, joined: [], left: [] }));
+          },
+          on(topic, fn) {
+            if (!handlers[topic]) return () => {};
+            handlers[topic].push(fn);
+            return () => { handlers[topic] = handlers[topic].filter(x => x !== fn); };
+          },
+          onPeers(fn) {
+            handlers.peers.push(fn);
+            fn({ peers: peersFromState(channel.presenceState()), joined: [], left: [] });
+            return () => { handlers.peers = handlers.peers.filter(x => x !== fn); };
+          },
+          async emit(topic, data) {
+            if (topic !== "chat" && topic !== "gif" && topic !== "kick") throw new Error("Unknown message type");
+            const result = await channel.send({
+              type: "broadcast",
+              event: topic,
+              payload: { ...data, peerId }
+            });
+            if (result !== "ok") throw new Error("Broadcast failed: " + result);
+          },
+          async leave() {
+            try { await channel.untrack(); } catch (e) {}
+            await onlineClient.removeChannel(channel);
+          }
+        };
+      }
+    };
+
+    onlineReady = true;
+    status.textContent = "ONLINE SERVICE CONNECTED. Choose a server and join your friend.";
+    joinButton.disabled = false;
+    joinButton.textContent = "JOIN";
+  } catch (err) {
+    console.error("Supabase connection failed:", err);
+    room = null;
+    onlineReady = false;
+    status.textContent = "Can't connect to Supabase: " + (err?.message || "check internet, project URL, key, and Realtime");
+    joinButton.disabled = false;
+    joinButton.textContent = "RETRY / JOIN";
+  }
+}
+connectOnline();
+
+// ---- sounds (generated with Web Audio, no files) ----
+let ac = null, muted = false;
+try { muted = localStorage.getItem("tg_mute") === "1"; } catch (e) {}
+function unlock() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); } catch (e) {} }
+function tone(f, d, t = "square", v = 0.05, at = 0) {
+  if (muted) return;
+  try {
+    unlock();
+    const o = ac.createOscillator(), g = ac.createGain(), s = ac.currentTime + at;
+    o.type = t; o.frequency.setValueAtTime(f, s);
+    g.gain.setValueAtTime(v, s); g.gain.exponentialRampToValueAtTime(0.0001, s + d);
+    o.connect(g); g.connect(ac.destination); o.start(s); o.stop(s + d);
+  } catch (e) {}
+}
+const SFX = {
+  send:  () => tone(660, .08, "square"),
+  recv:  () => { tone(520, .07, "triangle", .07); tone(780, .1, "triangle", .07, .07); },
+  join:  () => { tone(440, .08, "sine", .08); tone(660, .12, "sine", .08, .09); },
+  leave: () => { tone(660, .08, "sine", .08); tone(440, .12, "sine", .08, .09); },
+  gif:   () => { tone(500, .07, "square"); tone(700, .07, "square", .05, .07); tone(900, .1, "square", .05, .14); }
+};
+function setMute(m) { muted = m; try { localStorage.setItem("tg_mute", m ? "1" : "0"); } catch (e) {} $("muteBtn").textContent = m ? "SOUND OFF" : "SOUND ON"; }
+$("muteBtn").onclick = () => setMute(!muted);
+setMute(muted);
+
+// ---- log helpers (all text via textContent) ----
+function add(n) { $("log").appendChild(n); $("log").scrollTop = $("log").scrollHeight; }
+function sys(t) { const d = document.createElement("div"); d.className = "sys"; d.textContent = "* " + t; add(d); }
+function line(name, mine) {
+  const d = document.createElement("div"); d.className = "msg" + (mine ? " me" : "");
+  const w = document.createElement("span"); w.className = "who"; w.textContent = String(name).slice(0, 20) + ": ";
+  d.appendChild(w); return d;
+}
+function showText(m, mine) {
+  if (typeof m.data?.text !== "string") return;
+  const d = line(m.data.name, mine); d.appendChild(document.createTextNode(m.data.text.slice(0, 500))); add(d); mine ? SFX.send() : SFX.recv();
+}
+function showGif(m, mine) {
+  const d = line(m.data?.name || "someone", mine);
+  if (typeof m.data?.url === "string") {
+    try {
+      const u = new URL(m.data.url);
+      if (u.protocol !== "https:" || !/\\.(gif)(?:$|[?#])/i.test(u.href)) return;
+      const img = document.createElement("img");
+      img.className = "chatgif"; img.src = u.href; img.alt = "Animated GIF";
+      img.loading = "lazy"; d.appendChild(document.createElement("br")); d.appendChild(img);
+      add(d); SFX.gif(); return;
+    } catch (e) { return; }
+  }
+  const e = m.data?.e, a = m.data?.a;
+  if (typeof e !== "string" || e.length > 8 || !ANIM_OK.has(a)) return;
+  const span = document.createElement("span");
+  span.className = "anim " + a; span.textContent = e;
+  d.appendChild(document.createElement("br")); d.appendChild(span); add(d); SFX.gif();
+}
+
+// ---- join / leave ----
+$("joinBtn").onclick = async () => {
+  unlock();
+  const n = $("username").value.trim();
+  if (!n) { $("err").textContent = "Pick a username."; return; }
+  if (!selected) { $("err").textContent = "Pick or create a server."; return; }
+  $("err").textContent = "";
+  if (!onlineReady || !room) {
+    $("err").textContent = "Multiplayer isn't connected yet. Check the connection status below and try again.";
+    return;
+  }
+  me = n; srv = selected; label = known[srv] || srv;
+  nr = null;
+  const joinButton = $("joinBtn");
+  joinButton.disabled = true;
+  try {
+    nr = await room.join("s-" + srv);
+    // Give the initial Presence sync time to include everyone already in this room.
+    await new Promise(r => setTimeout(r, 350));
+    const taken = nr.peers().some(p => !p.isMe && String(p.presence?.name || "").toLowerCase() === n.toLowerCase());
+    if (taken) {
+      await nr.leave(); nr = null;
+      $("err").textContent = "That username is already being used in this server. Choose another.";
+      joinButton.disabled = false;
+      return;
+    }
+    await nr.presence({ name: n });
+    await room.presence({ srv, label, name: n });
+  } catch (e) {
+    console.error("Room join failed:", e);
+    if (nr) { try { await nr.leave(); } catch (_) {} nr = null; }
+    $("err").textContent = "Couldn't join online server: " + (e?.message || "check connection and try again");
+    joinButton.disabled = false;
+    return;
+  }
+  joinButton.disabled = false;
+  try { localStorage.setItem("tg_user", n); } catch (e) {}
+  $("title").textContent = "# " + label + "  (" + me + ")";
+  $("log").innerHTML = ""; settled = false;
+  $("login").classList.add("hidden"); $("chat").classList.remove("hidden");
+  sys("ONLINE. Real players in this server can see your messages.");
+  if (nr) {
+    unsubs.push(nr.on("chat", m => showText(m, m.isMe)));
+    unsubs.push(nr.on("gif", m => showGif(m, m.isMe)));
+    unsubs.push(nr.onPeers(ch => {
+      $("users").innerHTML = "";
+      roomPeers = ch.peers;
+      const owner = ch.peers.find(p => p.presence?.ownerPeerId);
+      if (owner) { ownerPeerId = owner.presence.ownerPeerId; iAmOwner = ownerPeerId === peerId; }
+      $("modBtn").classList.toggle("hidden", !iAmOwner);
+      ch.peers.forEach(p => { const d = document.createElement("div"); d.textContent = String(p.presence?.name || "someone").slice(0, 20) + (p.isMe ? " (you)" : "") + ((p.presence?.ownerPeerId) ? " ★" : ""); $("users").appendChild(d); });
+      if (settled) {
+        ch.joined.forEach(p => { if (!p.isMe) { sys(String(p.presence?.name || "someone").slice(0, 20) + " joined."); SFX.join(); } });
+        ch.left.forEach(p => { sys(String(p.presence?.name || "someone").slice(0, 20) + " left."); SFX.leave(); });
+      }
+    }));
+    setTimeout(() => settled = true, 2000);
+  }
+  $("text").focus();
+};
+$("username").onkeydown = e => { if (e.key === "Enter") $("joinBtn").click(); };
+
+$("leaveBtn").onclick = async () => {
+  unsubs.forEach(u => u()); unsubs = [];
+  if (nr) { try { await nr.leave(); } catch (e) {} nr = null; }
+  if (room) { try { await room.presence({ srv: null, label: null, name: null }); } catch (e) {} }
+  $("chat").classList.add("hidden"); $("login").classList.remove("hidden"); $("tray").classList.add("hidden");
+};
+
+// ---- send ----
+async function out(topic, data) {
+  if (!nr) { sys("You're not connected to a multiplayer server. Rejoin to send messages."); return; }
+  // Supabase Broadcast is configured with self:false, so render the sender's
+  // copy locally and send one copy to everyone else in the room.
+  const localMessage = { data: { ...data, peerId } };
+  if (topic === "chat") showText(localMessage, true);
+  else if (topic === "gif") showGif(localMessage, true);
+  try {
+    await nr.emit(topic, data);
+  } catch (e) {
+    console.error("Message send failed:", e);
+    sys("Message may not have reached the other players: " + (e?.message || "send failed"));
+  }
+}
+function sendText() {
+  const t = $("text").value.trim(); if (!t) return;
+  out("chat", { name: me, text: t, peerId }); $("text").value = "";
+}
+$("send").onclick = sendText;
+$("text").onkeydown = e => { if (e.key === "Enter") sendText(); };
+
+ANIMS.forEach(([e, a]) => {
+  const b = document.createElement("button"); b.textContent = e;
+  b.onclick = () => { out("gif", { name: me, e, a, peerId }); $("tray").classList.add("hidden"); };
+  $("gifs").appendChild(b);
+});
+$("gifBtn").onclick = () => $("tray").classList.toggle("hidden");
+</script>
+</body>
+</html>
